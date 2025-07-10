@@ -178,3 +178,4 @@
 
 - [Visualizing Adaptive Huffman Coding](https://ben-tanen.com/adaptive-huffman/)
 - [自适应（动态）哈夫曼编码与解码过程_自适应霍夫曼编码-CSDN博客](https://blog.csdn.net/weixin_43838265/article/details/117324663)
+- 动态哈夫曼编码，io优化部分有借助LLM Gemini 进行学习
