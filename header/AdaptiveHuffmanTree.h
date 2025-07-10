@@ -6,9 +6,6 @@
 #define TREE_H
 
 #include <array>
-#include <vector>
-#include <unordered_map>
-#include <set>
 
 #include "io.h"
 
@@ -39,14 +36,6 @@ struct Node
 };
 
 
-struct NodeComparator {
-    bool operator()(const Node* a, const Node* b) const {
-        // 在set中，我们只关心number，因为同一set内weight相同
-        // 按编号降序排序，这样第一个元素就是leader
-        return a->number > b->number;
-    }
-};
-
 class AHTree
 {
 private:
@@ -58,25 +47,22 @@ private:
     int nodePoolNextIdx;
     Node* newNode(int data,int weight,int number);
 
-    std::unordered_map<int,Node*> nodeMap;
-    std::unordered_map<int, std::set<Node*, NodeComparator>> blocks;
+    std::array<Node*,BYTESIZE> symbolToNode;
+    std::array<Node*,MAX_NODES+1> numberToNode;
 
     int nextNumber;
-
+    void swapNodes(Node* node1, Node* node2);
+    void update(Node* p);
+    void getCode(Node* node,IOdevice& io);
+    Node* findLeaderInBlock(Node* node);
 
 public:
     AHTree();
-    ~AHTree();
+    ~AHTree() = default;
 
     void encode(unsigned char sym,IOdevice& io);
-    void getCode(int symbol,IOdevice& io);
-    void print();
+    unsigned char decode(IOdevice& io);
     Node* getRoot() const;
-    Node* splitNyt(unsigned char sym);
-    void update(Node* p);
-    void swapNodes(Node* node1, Node* node2);
-    void preOrder(Node* p);
-    Node* findBlockLeader(int w);
 };
 
 

@@ -5,7 +5,7 @@
 #include "header/AdaptiveHuffmanTree.h"
 
 #include <iostream>
-#include <stack>
+#include <algorithm>
 
 Node::Node()
 {
@@ -40,96 +40,56 @@ Node* AHTree::newNode(int data, int weight, int number)
     node->parent = nullptr;
     node->left = nullptr;
     node->right = nullptr;
+    // 建立编号映射
+    numberToNode[number] = node;
     return node;
 }
 
 // 构造函数
 AHTree::AHTree():nodePool(),nodePoolNextIdx(0)
 {
+    symbolToNode.fill(nullptr);
+    numberToNode.fill(nullptr);
+
     nextNumber = MAX_NODES;
     root = newNode(NYT_SYMBOL,0,nextNumber--);
     nyt = root;
 
-    blocks[root->weight].insert(root);
-
-
 }
 
-
-// 析构函数
-AHTree::~AHTree()
-{
-    // 节点池中的节点会自动释放，无需手动释放
-
-}
 
 // 交换两个节点信息及树上的位置
 void AHTree::swapNodes(Node* node1, Node* node2)
 {
-    if (!node1 || !node2 || node1 == node2) return;
+    if (!node1 || !node2 || node1 == node2 ||node1->parent == nullptr || node2->parent == nullptr)
+        return;
 
-    // 交换与树中位置绑定的节点编号
-    std::swap(node1->number, node2->number);
+    // 交换节点的父母指针
+    Node* p1 = node1->parent;
+    Node* p2 = node2->parent;
+    std::swap(node1->parent,node2->parent);
 
-    // 识别每个节点的父节点以及它是左子节点还是右子节点
-    Node* parent1 = node1->parent;
-    bool is_left1 = (parent1->left == node1);
-
-    Node* parent2 = node2->parent;
-    bool is_left2 = (parent2->left == node2);
-
-    // 交换父节点指向子节点的指针
-    if (is_left1) {
-        parent1->left = node2;
-    } else {
-        parent1->right = node2;
+    // 交换两个节点在树中的实际位置
+    if (p1)
+    {
+        if (node1 == p1->left) p1->left = node2;
+        else p1->right = node2;
     }
 
-    if (is_left2) {
-        parent2->left = node1;
-    } else {
-        parent2->right = node1;
+    if (p2)
+    {
+        if (node2 == p2->left) p2->left = node1;
+        else p2->right = node1;
     }
 
-    // 交换子节点指向父节点的指针
-    std::swap(node1->parent, node2->parent);
-}
+    // 交换编号对应表后交换编号。
+    std::swap(numberToNode[node1->number],numberToNode[node2->number]);
+    std::swap(node1->number,node2->number);
 
-void AHTree::preOrder(Node* p)
-{
-    if (p == nullptr) return;
-    std::cout<<p->data<<" ";
-    preOrder(p->left);
-    preOrder(p->right);
-}
+    // 如果节点是根，则更新根指针
+    if (root == node1) root = node2;
+    else if (root == node2) root = node1;
 
-Node* AHTree::splitNyt(unsigned char sym)
-{
-    Node* oldnyt = nyt;
-    Node* newRightLeaf = newNode(sym,0,nextNumber--);
-
-    Node* newnyt = newNode(NYT_SYMBOL,0,nextNumber--);
-
-    nodeMap[sym] = newRightLeaf;
-
-    blocks[newnyt->weight].insert(newnyt);
-    blocks[newRightLeaf->weight].insert(newRightLeaf);
-
-    newRightLeaf->parent = oldnyt;
-    newnyt->parent = oldnyt;
-
-    oldnyt->data = INT_SYMBOL;
-    oldnyt->left = newnyt;
-    oldnyt->right = newRightLeaf;
-
-    nyt = newnyt;
-
-    return newRightLeaf;
-}
-
-void AHTree::print()
-{
-    preOrder(root);
 }
 
 Node* AHTree::getRoot() const
@@ -138,39 +98,59 @@ Node* AHTree::getRoot() const
 }
 
 // 找到当前权重块的编号最大者
-Node* AHTree::findBlockLeader(int w)
+// 保证相同权重的节点拥有连续的编号
+Node* AHTree::findLeaderInBlock(Node* node)
 {
-
-    if (blocks.count(w) && !blocks[w].empty()) {
-        // set的第一个元素就是leader
-        return *blocks[w].begin();
+    int w = node->weight;
+    for (int num = node->number+1; num <= MAX_NODES; num++)
+    {
+        Node* nextNode = numberToNode[num];
+        if (nextNode == nullptr || nextNode->weight!= w)
+        {
+            // 到达权重块的末尾，即编号最大的节点
+            return numberToNode[num-1];
+        }
     }
-    return nullptr;
+    return numberToNode[MAX_NODES];
 }
 
 // 编码
 void AHTree::encode(unsigned char sym,IOdevice& io)
 {
-
-    Node* toUpdate = nullptr;
-    if (!nodeMap.contains(sym))
+    Node* leaf = symbolToNode[sym];
+    if (leaf  != nullptr)
     {
-        // 写入nyt的编码
-        getCode(NYT_SYMBOL,io);
-        // 写入新符号的原始表示
-        for (int i=7;i>=0;i--)
-        {
-            io.writeBit((sym>>i)&1);
-        }
-        // 分裂nyt
-        toUpdate = splitNyt(sym);
+        getCode(leaf,io);
+        update(leaf);
     }
     else
     {
-        getCode(sym,io);
-        toUpdate = nodeMap[sym];
+        getCode(nyt,io);
+        for (int i=7;i>=0;i--)
+        {
+            io.writeBit((sym >> i) & 1);
+        }
+        // 分裂旧的nyt节点
+        Node* oldnyt = nyt;
+        Node* newLeaf = newNode(sym,1,oldnyt->number-1);
+        Node* newnyt = newNode(NYT_SYMBOL,0,oldnyt->number-2);
+
+        // 建立连接关系
+        oldnyt->left = newnyt;
+        oldnyt->right = newLeaf;
+        newnyt->parent = oldnyt;
+        newLeaf->parent = oldnyt;
+        // 将旧的nyt作为中间节点
+        oldnyt->data = INT_SYMBOL;
+
+        // 更新nyt
+        nyt = newnyt;
+
+        // 更新映射表
+        symbolToNode[sym] = newLeaf;
+        // 从父结点开始向上更新
+        update(oldnyt);
     }
-    update(toUpdate);
 }
 
 void AHTree::update(Node* n)
@@ -178,59 +158,96 @@ void AHTree::update(Node* n)
     Node* p = n;
     while (p != nullptr)
     {
-        int current_weight = p->weight;
-
-        Node* leader = findBlockLeader(p->weight);
+        Node* leader = findLeaderInBlock(p);
         if (leader != nullptr && leader != p && leader != p->parent)
         {
-            blocks[current_weight].erase(p);
-            blocks[current_weight].erase(leader);
-
             swapNodes(p,leader);
-
-            blocks[current_weight].insert(p);
-            blocks[current_weight].insert(leader);
         }
-
-        blocks[current_weight].erase(p);
-        if (blocks[current_weight].empty()) {
-            blocks.erase(current_weight); // 如果 block 空了，最好将其从 map 中移除
-        }
-
         //  增加 p 的权重
         p->weight += 1;
 
-        //  将 p 加入新的权重 block
-        blocks[p->weight].insert(p);
         // 往上维护性质
         p = p->parent;
     }
 }
 
-void AHTree::getCode(int sym,IOdevice& io)
+void AHTree::getCode(Node* node,IOdevice& io)
 {
+    bool codeBuffer[MAX_NODES];
+    int count = 0;
     // 从叶子向上遍历到根节点，并将路上的位压入栈中
-    std::stack<bool> codeStack;
-    Node* cur = nullptr;
-    if (sym == NYT_SYMBOL) cur = nyt;
-    else cur = nodeMap[sym];
+    Node* cur = node;
 
     while (cur != nullptr && cur->parent != nullptr)
     {
         if (cur == cur->parent->left)
         {
-            codeStack.push(false);
+            codeBuffer[count++] = false;
         } else
         {
-            codeStack.push(true);
+            codeBuffer[count++] = true;
         }
         cur = cur->parent;
     }
 
     // 弹栈写入
-    while (!codeStack.empty())
+    for (int i=count-1;i>=0;i--)
     {
-        io.writeBit(codeStack.top());
-        codeStack.pop();
+        io.writeBit(codeBuffer[i]);
     }
+}
+
+unsigned char AHTree::decode(IOdevice& io)
+{
+    Node* cur = root;
+    // 不是叶子节点就随着bit流移动
+    while (!cur->isLeaf())
+    {
+        bool bit;
+        if (!io.readBit(bit))
+        {
+            std::cerr << "在解码树路径时比特流不完整。" << std::endl;
+            return -1;
+        }
+        // 0向左，1向右
+        cur = bit ? cur->right : cur->left;
+    }
+
+    unsigned char sym = 0;
+    // 遇到nyt节点，读取接下来8位构建新字符
+    if (cur == nyt)
+    {
+        for (int i=0;i<8;i++)
+        {
+            bool bit;
+            if (!io.readBit(bit))
+            {
+                std::cerr << "在解码树路径时比特流不完整。" << std::endl;
+                return -1;
+            }
+            sym = (sym<<1) | bit;
+        }
+
+        // 分裂nyt
+        Node* oldnyt = nyt;
+        Node* newLeaf = newNode(sym,1,oldnyt->number-1);
+        Node* newnyt = newNode(NYT_SYMBOL,0,oldnyt->number-2);
+
+        oldnyt->left = newnyt;
+        oldnyt->right = newLeaf;
+        newnyt->parent = oldnyt;
+        newLeaf->parent = oldnyt;
+        oldnyt->data = INT_SYMBOL;
+        nyt = newnyt;
+        symbolToNode[sym] = newLeaf;
+        // 更新树
+        update(oldnyt);
+    } else
+    {
+        // 遇到已经出现的字符
+        sym = cur->data;
+        // 更新对应的节点
+        update(cur);
+    }
+    return sym;
 }

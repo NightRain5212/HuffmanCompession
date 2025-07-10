@@ -158,43 +158,17 @@ void extract(const std::string& source)
             return;
         }
 
-        Node* cur = tree.getRoot();
         uint64_t decompressedBytes = 0;
         const uint64_t currentFileSize = metadata.originalSize;
         showProgress(prefix,decompressedBytes,currentFileSize);
         while (decompressedBytes < currentFileSize)
         {
-            if (cur->isLeaf())
-            {
-                unsigned char sym = 0;
-                if (cur->data == NYT_SYMBOL)
-                {
-                    sym = 0;bool bit = false;
-                    for (int i=0;i<8;i++)
-                    {
-                        if (io.readBit(bit)) sym = (sym << 1) | bit;
-                        else goto end_loop;
-                    }
-                    Node* newnode = tree.splitNyt(sym);
-                    tree.update(newnode);
-                } else
-                {
-                    sym = cur->data;
-                    tree.update(cur);
-                }
-                tempFile.put(sym);
-                decompressedBytes ++;
-                totalBytesDecompressed++;
-                cur = tree.getRoot();
-                if (decompressedBytes % UPDATE_INTERVAL == 0)
-                {
-                    showProgress(prefix,decompressedBytes,currentFileSize);
-                }
-            } else
-            {
-                bool bit;
-                if (!io.readBit(bit)) break;
-                cur = bit? cur->right: cur->left;
+            unsigned char sym = tree.decode(io);
+            tempFile.put(sym);
+            decompressedBytes++;
+
+            if (decompressedBytes % UPDATE_INTERVAL == 0) {
+                showProgress(prefix, decompressedBytes, currentFileSize);
             }
         }
         tempFile.close();
